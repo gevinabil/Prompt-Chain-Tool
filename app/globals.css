@@ -344,6 +344,38 @@ html[data-theme="dark"] .btn-ghost {
   gap: 10px;
 }
 
+.flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-chip,
+.caption-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.28);
+  font-size: 0.82rem;
+}
+
+html[data-theme="dark"] .flow-chip,
+html[data-theme="dark"] .caption-badge {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.flow-arrow {
+  color: var(--muted);
+}
+
+.caption-badge {
+  margin-left: 8px;
+  color: var(--primary);
+}
+
 .split {
   justify-content: space-between;
   align-items: flex-start;
@@ -400,6 +432,34 @@ html[data-theme="dark"] .theme-chip.is-active {
 
 .ordered-list li + li {
   margin-top: 8px;
+}
+
+.workflow-callout,
+.empty-guide {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(49, 95, 114, 0.06);
+}
+
+html[data-theme="dark"] .workflow-callout,
+html[data-theme="dark"] .empty-guide {
+  background: rgba(124, 181, 199, 0.06);
+}
+
+.inline-hint {
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.btn[aria-busy="true"] {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .status-card.success {
