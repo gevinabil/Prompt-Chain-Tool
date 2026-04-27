@@ -20,6 +20,7 @@ export function SubmitButton({
 
   return (
     <Button aria-busy={pending} disabled={disabled || pending} type="submit" variant={variant}>
+      {pending ? <span aria-hidden="true" className="btn-spinner" /> : null}
       {pending ? pendingLabel : idleLabel}
     </Button>
   );

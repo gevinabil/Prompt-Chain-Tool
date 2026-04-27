@@ -19,7 +19,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <Card className="stack-tight sidebar-hero" scanlines>
           <span className="eyebrow">Prompt Chain Tool</span>
           <h2>Humor Flavor Manager</h2>
-          <p>Create, duplicate, and test flavors from one polished prompt-workbench.</p>
           <div className="sidebar-pills">
             <span className="sidebar-pill">{user.email}</span>
             <span className="sidebar-pill">
@@ -32,7 +31,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
         <Card className="stack-tight sidebar-panel">
           <span className="eyebrow">Theme</span>
-          <p className="inline-hint">Switch palettes without changing the simplified glossy layout.</p>
           <ThemeToggle />
           <form action={signOut}>
             <Button type="submit" variant="secondary">
