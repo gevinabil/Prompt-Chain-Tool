@@ -114,6 +114,14 @@ async function finishWithResults(kind: "message" | "error", value: string, resul
   redirect(toAdminUrlWithResults(kind, value, results));
 }
 
+function invariant<T>(value: T | null | undefined, message: string): T {
+  if (value == null) {
+    throw new Error(message);
+  }
+
+  return value;
+}
+
 async function createFlavor(formData: FormData) {
   "use server";
 
@@ -208,9 +216,12 @@ async function duplicateFlavor(formData: FormData) {
     await finish("error", createdFlavorRes.error?.message ?? "Could not create duplicated flavor.");
   }
 
+  const duplicatedFlavor = invariant(createdFlavorRes.data, "Could not create duplicated flavor.");
+  const duplicatedFlavorId = duplicatedFlavor.id;
+
   if (sourceSteps.length > 0) {
     const stepPayload = sourceSteps.map((step) => ({
-      humor_flavor_id: createdFlavorRes.data.id,
+      humor_flavor_id: duplicatedFlavorId,
       order_by: step.order_by,
       description: step.description,
       llm_system_prompt: step.llm_system_prompt,
