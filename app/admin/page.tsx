@@ -153,6 +153,84 @@ async function updateFlavor(formData: FormData) {
   await finish("message", `Flavor ${slug} updated.`);
 }
 
+async function duplicateFlavor(formData: FormData) {
+  "use server";
+
+  const { supabase } = await requireAdmin();
+  const sourceFlavorId = getNumber(formData, "source_flavor_id");
+  const newSlug = getString(formData, "new_slug");
+
+  if (!sourceFlavorId || !newSlug) {
+    await finish("error", "Pick a flavor and provide a new unique name.");
+  }
+
+  const [sourceFlavorRes, sourceStepsRes, existingFlavorRes] = await Promise.all([
+    supabase.from("humor_flavors").select("id, slug, description").eq("id", sourceFlavorId).single(),
+    supabase
+      .from("humor_flavor_steps")
+      .select(
+        "order_by, description, llm_system_prompt, llm_user_prompt, llm_temperature, llm_input_type_id, llm_output_type_id, llm_model_id, humor_flavor_step_type_id"
+      )
+      .eq("humor_flavor_id", sourceFlavorId)
+      .order("order_by", { ascending: true }),
+    supabase.from("humor_flavors").select("id").eq("slug", newSlug).maybeSingle()
+  ]);
+
+  if (sourceFlavorRes.error || !sourceFlavorRes.data) {
+    await finish("error", sourceFlavorRes.error?.message ?? "Source flavor not found.");
+  }
+
+  if (sourceStepsRes.error) {
+    await finish("error", sourceStepsRes.error.message);
+  }
+
+  if (existingFlavorRes.error) {
+    await finish("error", existingFlavorRes.error.message);
+  }
+
+  if (existingFlavorRes.data) {
+    await finish("error", `A humor flavor named "${newSlug}" already exists. Choose a unique name.`);
+  }
+
+  const sourceFlavor = sourceFlavorRes.data as Pick<FlavorRow, "slug" | "description">;
+  const sourceSteps = sourceStepsRes.data ?? [];
+  const duplicateDescription = sourceFlavor.description
+    ? `${sourceFlavor.description}\n\nDuplicated from ${sourceFlavor.slug}.`
+    : `Duplicated from ${sourceFlavor.slug}.`;
+
+  const createdFlavorRes = await supabase
+    .from("humor_flavors")
+    .insert({ slug: newSlug, description: duplicateDescription })
+    .select("id")
+    .single();
+
+  if (createdFlavorRes.error || !createdFlavorRes.data) {
+    await finish("error", createdFlavorRes.error?.message ?? "Could not create duplicated flavor.");
+  }
+
+  if (sourceSteps.length > 0) {
+    const stepPayload = sourceSteps.map((step) => ({
+      humor_flavor_id: createdFlavorRes.data.id,
+      order_by: step.order_by,
+      description: step.description,
+      llm_system_prompt: step.llm_system_prompt,
+      llm_user_prompt: step.llm_user_prompt,
+      llm_temperature: step.llm_temperature,
+      llm_input_type_id: step.llm_input_type_id,
+      llm_output_type_id: step.llm_output_type_id,
+      llm_model_id: step.llm_model_id,
+      humor_flavor_step_type_id: step.humor_flavor_step_type_id
+    }));
+
+    const { error } = await supabase.from("humor_flavor_steps").insert(stepPayload);
+    if (error) {
+      await finish("error", error.message);
+    }
+  }
+
+  await finish("message", `Created duplicate flavor "${newSlug}" with ${sourceSteps.length} copied step(s).`);
+}
+
 async function deleteFlavor(formData: FormData) {
   "use server";
 
@@ -424,7 +502,7 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
     <AdminPage
       eyebrow="Prompt Chain Tool"
       title="Humor Flavor Manager"
-      description="This tool presents one fixed three-step caption flow and lets you test it with image uploads."
+      description="Create, duplicate, refine, and test humor flavors with a fixed three-step prompt chain."
     >
       {message ? (
         <Card className="status-card success">
@@ -453,7 +531,7 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
         title="Create Humor Flavor"
         description="Create a humor flavor first. Then fill in the three required steps below."
       >
-        <form action={createFlavor} className="form-grid">
+        <form action={createFlavor} className="form-grid spotlight-form">
           <Field label="Humor flavor name" hint="Stored in the existing humor_flavors.slug column.">
             <Input name="slug" placeholder="old-british-humor" required />
           </Field>
@@ -463,6 +541,19 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
           <SubmitButton idleLabel="Create Flavor" pendingLabel="Creating Flavor..." />
         </form>
       </AdminTableCard>
+
+      {flavors.length === 0 ? (
+        <AdminTableCard
+          title="Start Here"
+          description="The simplest flow is create a flavor, fill the three required steps, then test with images."
+        >
+          <div className="empty-guide stack-tight">
+            <p>1. Create a humor flavor with a name and short description.</p>
+            <p>2. Fill in the three required prompt steps.</p>
+            <p>3. Upload images and generate captions to see the result.</p>
+          </div>
+        </AdminTableCard>
+      ) : null}
 
       <div className="image-list">
         {flavors.map((flavor) => {
@@ -475,49 +566,67 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
           });
 
           return (
-            <Card className="stack" key={flavor.id}>
-              <div className="split">
-                <div className="stack-tight">
+            <Card className="stack flavor-card" key={flavor.id}>
+              <div className="flavor-header split">
+                <div className="stack-tight flavor-header-copy">
                   <span className="eyebrow">Humor Flavor #{flavor.id}</span>
                   <h2>{flavor.slug}</h2>
                   <p>{flavor.description ?? "No description yet."}</p>
-                  <small>
-                    Created {flavor.created_datetime_utc ? new Date(flavor.created_datetime_utc).toLocaleString() : "-"}
-                  </small>
+                  <div className="cluster flavor-meta">
+                    <small>
+                      Created {flavor.created_datetime_utc ? new Date(flavor.created_datetime_utc).toLocaleString() : "-"}
+                    </small>
+                    <span className={`status-pill ${readyToTest ? "is-ready" : "is-draft"}`}>
+                      {readyToTest ? "Ready to test" : "Needs setup"}
+                    </span>
+                  </div>
                 </div>
-                <form action={deleteFlavor}>
-                  <input name="id" type="hidden" value={flavor.id} />
-                  <SubmitButton idleLabel="Delete Flavor" pendingLabel="Deleting..." variant="danger" />
-                </form>
+                <div className="cluster flavor-actions">
+                  <form action={deleteFlavor}>
+                    <input name="id" type="hidden" value={flavor.id} />
+                    <SubmitButton idleLabel="Delete Flavor" pendingLabel="Deleting..." variant="danger" />
+                  </form>
+                </div>
               </div>
 
-              <form action={updateFlavor} className="form-grid-wide">
-                <input name="id" type="hidden" value={flavor.id} />
-                <Field label="Humor flavor name">
-                  <Input defaultValue={flavor.slug} name="slug" required />
-                </Field>
-                <Field label="Description">
-                  <Textarea defaultValue={flavor.description ?? ""} name="description" rows={3} />
-                </Field>
-                <SubmitButton idleLabel="Save Flavor" pendingLabel="Saving Flavor..." variant="secondary" />
-              </form>
+              <div className="editor-grid">
+                <Card className="stack-tight gloss-panel">
+                  <span className="eyebrow">Flavor Details</span>
+                  <form action={updateFlavor} className="form-grid-wide">
+                    <input name="id" type="hidden" value={flavor.id} />
+                    <Field label="Humor flavor name">
+                      <Input defaultValue={flavor.slug} name="slug" required />
+                    </Field>
+                    <Field label="Description">
+                      <Textarea defaultValue={flavor.description ?? ""} name="description" rows={3} />
+                    </Field>
+                    <SubmitButton idleLabel="Save Flavor" pendingLabel="Saving Flavor..." variant="secondary" />
+                  </form>
+                </Card>
 
-              <Card className="stack-tight">
-                <span className="eyebrow">Generation Flow</span>
-                <div className="flow-strip" aria-label="caption generation flow">
-                  <span className="flow-chip">Upload image</span>
-                  <span className="flow-arrow">→</span>
-                  <span className="flow-chip">Step 1</span>
-                  <span className="flow-arrow">→</span>
-                  <span className="flow-chip">Step 2</span>
-                  <span className="flow-arrow">→</span>
-                  <span className="flow-chip">Step 3</span>
-                  <span className="flow-arrow">→</span>
-                  <span className="flow-chip">Generated captions</span>
-                </div>
-              </Card>
+                <Card className="stack-tight gloss-panel">
+                  <span className="eyebrow">Duplicate Flavor</span>
+                  <p className="inline-hint">
+                    Clone this flavor and all three ordered steps into a new flavor with a unique name.
+                  </p>
+                  <form action={duplicateFlavor} className="form-grid-wide">
+                    <input name="source_flavor_id" type="hidden" value={flavor.id} />
+                    <Field
+                      label="New flavor name"
+                      hint={`Example: ${flavor.slug}-copy or ${flavor.slug}-v2`}
+                    >
+                      <Input defaultValue={`${flavor.slug}-copy`} name="new_slug" required />
+                    </Field>
+                    <SubmitButton
+                      idleLabel="Duplicate Flavor"
+                      pendingLabel="Duplicating Flavor..."
+                      variant="primary"
+                    />
+                  </form>
+                </Card>
+              </div>
 
-              <Card className="stack-tight">
+              <Card className="stack-tight gloss-panel">
                 <span className="eyebrow">Strict Three-Step Flow</span>
                 <p className="inline-hint">
                   You can only edit these three steps, in this order, and nothing else.
@@ -527,7 +636,7 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
                   const step = stepMap.get(template.order);
 
                   return (
-                    <Card className="stack-tight" key={`${flavor.id}-${template.order}`}>
+                    <Card className="stack-tight step-card" key={`${flavor.id}-${template.order}`}>
                       <div className="stack-tight">
                         <span className="eyebrow">Step {template.order}</span>
                         <h3>{template.title}</h3>
@@ -569,7 +678,7 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
                 })}
               </Card>
 
-              <Card className="stack-tight">
+              <Card className="stack-tight gloss-panel">
                 <span className="eyebrow">Test Humor Flavor</span>
                 <form action={testFlavor} className="form-grid-wide">
                   <input name="humor_flavor_id" type="hidden" value={flavor.id} />
@@ -594,7 +703,7 @@ export default async function AdminPageRoot({ searchParams }: { searchParams: Se
                 </form>
               </Card>
 
-              <Card className="stack-tight">
+              <Card className="stack-tight gloss-panel">
                 <span className="eyebrow">Generated Captions</span>
                 {(() => {
                   const latestTestCaptions: DisplayCaption[] =
